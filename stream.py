@@ -3,6 +3,8 @@ import openpyxl
 from docx import Document
 import os
 import shutil
+import tempfile
+import zipfile
 
 # Streamlit Configuration
 st.set_page_config(
@@ -12,10 +14,37 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-TEMPLATE_PATH_BASE = os.path.join("/home", "daniel", "TELENOR")
-RESULTS_DIRECTORY = f"/home/daniel/TELENOR/results/"
+TEMPLATE_PATH_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mallar')
+RESULTS_DIRECTORY = tempfile.mkdtemp()
+
+def handle_uploaded_zip(uploaded_zip):
+    # Extract the uploaded ZIP to a temporary directory
+    with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
+        temp_dir = tempfile.mkdtemp()
+        zip_ref.extractall(temp_dir)
+
+    # Process MSA files in the temporary directory
+    process_msa_files(temp_dir)
+
+    # Clean up (optional)
+    shutil.rmtree(temp_dir)
+
+def zip_results_directory():
+    # Create a separate directory for the zip file
+    zip_dir = tempfile.mkdtemp()
+    zip_filename = os.path.join(zip_dir, "results.zip")
+    
+    # Archive the RESULTS_DIRECTORY
+    shutil.make_archive(zip_filename[:-4], 'zip', RESULTS_DIRECTORY)
+    return zip_filename
 
 def process_msa_files(msa_directory):
+    # Get the list of files in the directory
+    files_in_directory = os.listdir(msa_directory)
+
+    # Print the number of files in the directory
+    print(f"Antal filer i {msa_directory}: {len(files_in_directory)}")
+    
     for filename in os.listdir(msa_directory):
         if filename.endswith(".xlsx"):
             msa_path = os.path.join(msa_directory, filename)
@@ -103,7 +132,7 @@ def print_info(msa_path, msa_data, customer):
     for key, value in msa_data.items():
         print(f"{key.capitalize()}: {value}")
     print(f"Customer: {customer}")
-    print(f"------------------")
+    print(f"____________________")
 
 def sanitize_file_name(name):
     sanitized_name = '_'.join(name.split())
@@ -124,7 +153,6 @@ def replace_placeholders_in_document(doc, data):
             for key, value in placeholders.items():
                 if key in run.text:
                     run.text = run.text.replace(key, value)
-
 
 def update_word_template(customer, msa_data):
     template_path = os.path.join(TEMPLATE_PATH_BASE, customer, f"Avtalsmall_{customer}.docx")
@@ -178,11 +206,16 @@ def update_prisberakningsmall(customer, landlord_desc, tenant_desc, msa_data):
     else:
         print(f"The file {template_path} does NOT exist.")  # This will show if the path is incorrect or if the template does not exist
 
-
-# Streamlit UI
-st.title(":blue[Avtalshantering]")
+results_directory = RESULTS_DIRECTORY  
 
 choice = st.radio("Önskar du hantera en enskild MSA eller en hel folder?", ["Enskild MSA", "Hel folder"])
+
+# Initialize and set session state variables for msa_directory, results_directory and templates_directory if they don't exist.
+if 'msa_directory' not in st.session_state:
+    st.session_state.msa_directory = RESULTS_DIRECTORY
+
+if 'templates_directory' not in st.session_state:
+    st.session_state.templates_directory = TEMPLATE_PATH_BASE
 
 if choice == "Enskild MSA":
     uploaded_file = st.file_uploader("Ladda upp MSA nedan.", type=["xlsx"])
@@ -191,14 +224,27 @@ if choice == "Enskild MSA":
         st.write("MSA hanterad.")
 
 elif choice == "Hel folder":
-    msa_directory = st.text_input("Ange filsökvägen till MSA-filer:", value=RESULTS_DIRECTORY)
-    results_directory = st.text_input("Ange filsökväg där där önskar spara färdiga resultat:", value=RESULTS_DIRECTORY)
-    templates_directory = st.text_input("Ange filsökväg där mallar finns:", value=TEMPLATE_PATH_BASE)
+    # Use session state variables as default values for the text inputs
+    msa_directory = st.text_input("Ange filsökvägen till MSA-filer:", value=st.session_state.msa_directory)
+    templates_directory = st.text_input("Ange filsökväg där mallar finns:", value=st.session_state.templates_directory)
+
+    # Update session state values based on user input
+    st.session_state.msa_directory = msa_directory
+    st.session_state.templates_directory = templates_directory
 
     if st.button("Hantera filer"):
         if msa_directory and results_directory and templates_directory:
             process_msa_files(msa_directory)
             st.write("Alla MSA-filer i vald folder har nu blivit hanterade.")
-            # st.markdown(f"Download the Avtalsmall and Prisberakningsmall files from [here]({results_directory}).")
+            zip_file = zip_results_directory()
+
+            with open(zip_file, "rb") as f:
+                bytes_data = f.read()
+                st.download_button(
+                    label="Ladda hem hanterade avtalsmallar och prisberakningsmallar",
+                    data=bytes_data,
+                    file_name="results.zip",
+                    mime="application/zip"
+                )
 
 st.stop()
