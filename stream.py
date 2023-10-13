@@ -155,6 +155,7 @@ def update_sheet_based_on_customer(sheet, customer, landlord_desc, tenant_desc):
         sheet['G1'] = landlord_desc
     elif customer == '3GIS':
         sheet['D6'] = landlord_desc
+        sheet['D8'] = tenant_desc
     elif customer == 'Telia':
         if tenant_desc:
             sheet['D7'] = tenant_desc
